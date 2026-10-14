@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1f6feb">
+<title>Secure Notes</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+/* ============ 1. THEME ============ */
+:root{--bg:#f5f6f8;--card:#fff;--text:#1c1e21;--muted:#6b7280;--accent:#1f6feb;--danger:#d93025;--border:#e3e5e8}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#111316;--card:#1b1e23;--text:#e8eaed;--muted:#9aa0a6;--accent:#4c8dff;--danger:#f28b82;--border:#2b2f36}
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Roboto,sans-serif}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input,textarea{font:inherit;color:var(--text);background:var(--card);border:1px solid var(--border);border-radius:10px;padding:12px;width:100%;outline:none}
+input:focus,textarea:focus{border-color:var(--accent)}
+.hidden{display:none!important}
+
+/* ============ 2. LOCK SCREEN ============ */
+#lock{height:100%;display:flex;flex-direction:column;justify-content:center;align-items:center;padding:24px;gap:12px;text-align:center}
+#lock h1{margin:0;font-size:26px}
+#lock p{margin:0;color:var(--muted);font-size:14px;max-width:320px}
+#lock input{max-width:320px;text-align:center}
+.primary{background:var(--accent);color:#fff;border-radius:10px;padding:12px 20px;font-weight:600;width:100%;max-width:320px}
+#lockErr{color:var(--danger);font-size:14px;min-height:18px}
+
+/* ============ 3. MAIN LIST SCREEN ============ */
+#app{height:100%;display:flex;flex-direction:column}
+header{display:flex;gap:8px;align-items:center;padding:10px 12px;padding-top:max(10px,env(safe-area-inset-top));background:var(--card);border-bottom:1px solid var(--border)}
+header input{flex:1;padding:10px 12px}
+.iconbtn{font-size:22px;padding:6px 10px;border-radius:8px}
+#tags{display:flex;gap:6px;overflow-x:auto;padding:8px 12px;white-space:nowrap}
+.chip{border:1px solid var(--border);background:var(--card);border-radius:16px;padding:4px 12px;font-size:13px;color:var(--muted)}
+.chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+#list{flex:1;overflow-y:auto;padding:4px 12px 90px}
+.note{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px}
+.note h3{margin:0 0 4px;font-size:16px}
+.note .prev{color:var(--muted);font-size:14px;white-space:pre-wrap;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.note .meta{margin-top:6px;font-size:12px;color:var(--muted)}
+.empty{text-align:center;color:var(--muted);margin-top:60px}
+#fab{position:fixed;right:18px;bottom:max(18px,env(safe-area-inset-bottom));width:58px;height:58px;border-radius:50%;background:var(--accent);color:#fff;font-size:30px;box-shadow:0 4px 14px rgba(0,0,0,.3)}
+
+/* ============ 4. MENU ============ */
+#menu{position:fixed;top:56px;right:10px;background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:10;min-width:200px;overflow:hidden}
+#menu button{display:block;width:100%;text-align:left;padding:14px 16px;border-bottom:1px solid var(--border)}
+#menu button:last-child{border-bottom:0}
+
+/* ============ 5. EDITOR SCREEN ============ */
+#editor{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;z-index:5}
+#editor .bar{display:flex;align-items:center;gap:4px;padding:8px;padding-top:max(8px,env(safe-area-inset-top));background:var(--card);border-bottom:1px solid var(--border)}
+#editor .bar .sp{flex:1}
+#editor .body{flex:1;display:flex;flex-direction:column;gap:8px;padding:12px;overflow:hidden}
+#eTitle{font-size:18px;font-weight:600}
+#eBody{flex:1;resize:none;line-height:1.5}
+#saved{font-size:12px;color:var(--muted);padding:0 4px}
+</style>
+</head>
+<body>
+
+<!-- ============ 6. HTML: LOCK SCREEN ============ -->
+<div id="lock">
+  <h1>🔒 Secure Notes</h1>
+  <p id="lockMsg">Enter your password</p>
+  <input id="pw" type="password" placeholder="Password" autocomplete="current-password">
+  <input id="pw2" type="password" placeholder="Confirm password" class="hidden">
+  <div id="lockErr"></div>
+  <button class="primary" id="lockBtn">Unlock</button>
+</div>
+
+<!-- ============ 7. HTML: MAIN APP ============ -->
+<div id="app" class="hidden">
+  <header>
+    <input id="search" type="search" placeholder="Search notes...">
+    <button class="iconbtn" id="menuBtn">⋮</button>
+  </header>
+  <div id="tags"></div>
+  <div id="list"></div>
+  <button id="fab">+</button>
+  <div id="menu" class="hidden">
+    <button id="mExport">⬇ Export encrypted backup</button>
+    <button id="mImport">⬆ Import backup</button>
+    <button id="mPw">🔑 Change password</button>
+    <button id="mLock">🔒 Lock now</button>
+  </div>
+  <input type="file" id="file" accept=".json,application/json" class="hidden">
+</div>
+
+<!-- ============ 8. HTML: EDITOR ============ -->
+<div id="editor" class="hidden">
+  <div class="bar">
+    <button class="iconbtn" id="eBack">←</button>
+    <span id="saved"></span>
+    <span class="sp"></span>
+    <button class="iconbtn" id="ePin" title="Pin">📌</button>
+    <button class="iconbtn" id="eDel" title="Delete">🗑</button>
+  </div>
+  <div class="body">
+    <input id="eTitle" placeholder="Title">
+    <input id="eTags" placeholder="Tags (comma separated)">
+    <textarea id="eBody" placeholder="Write your note..."></textarea>
+  </div>
+</div>
+
+<script>
+/* ============ 9. HELPERS ============ */
+const $ = s => document.querySelector(s);
+const enc = new TextEncoder(), dec = new TextDecoder();
+const STORE_KEY = 'secure_notes_vault_v1';
+const AUTOLOCK_MS = 60 * 1000;           // auto-lock after 60s in background
+
+function toB64(buf){
+  const b = new Uint8Array(buf); let s = '';
+  for (let i = 0; i < b.length; i += 8192) s += String.fromCharCode.apply(null, b.subarray(i, i + 8192));
+  return btoa(s);
+}
+function fromB64(str){ return Uint8Array.from(atob(str), c => c.charCodeAt(0)); }
+function esc(s){ return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+
+/* ============ 10. CRYPTO (PBKDF2 -> AES-GCM 256) ============ */
+async function deriveKey(password, salt){
+  const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations: 250000, hash: 'SHA-256' },
+    base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+}
+async function encryptJSON(key, obj){
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, enc.encode(JSON.stringify(obj)));
+  return { iv: toB64(iv), data: toB64(ct) };
+}
+async function decryptJSON(key, iv, data){
+  const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: fromB64(iv) }, key, fromB64(data));
+  return JSON.parse(dec.decode(pt));
+}
+
+/* ============ 11. STATE + VAULT STORAGE ============ */
+let KEY = null, SALT = null, NOTES = [], activeTag = '', current = null, lockTimer = null, saveTimer = null;
+
+async function persist(){
+  const { iv, data } = await encryptJSON(KEY, NOTES);
+  localStorage.setItem(STORE_KEY, JSON.stringify({ v: 1, salt: toB64(SALT), iv, data }));
+}
+const vaultExists = () => !!localStorage.getItem(STORE_KEY);
+
+/* ============ 12. LOCK / UNLOCK / SETUP ============ */
+function showLock(){
+  KEY = null; NOTES = []; current = null;
+  $('#app').classList.add('hidden'); $('#editor').classList.add('hidden'); $('#menu').classList.add('hidden');
+  $('#lock').classList.remove('hidden');
+  $('#pw').value = ''; $('#pw2').value = ''; $('#lockErr').textContent = '';
+  const first = !vaultExists();
+  $('#pw2').classList.toggle('hidden', !first);
+  $('#lockMsg').textContent = first ? 'First time: create a password. If you forget it, notes cannot be recovered.' : 'Enter your password';
+  $('#lockBtn').textContent = first ? 'Create & Start' : 'Unlock';
+}
+
+async function onLockSubmit(){
+  const pw = $('#pw').value, err = $('#lockErr');
+  err.textContent = '';
+  if (!pw) return;
+  try {
+    if (!vaultExists()){
+      if (pw.length < 6) { err.textContent = 'Use at least 6 characters'; return; }
+      if (pw !== $('#pw2').value) { err.textContent = 'Passwords do not match'; return; }
+      SALT = crypto.getRandomValues(new Uint8Array(16));
+      KEY = await deriveKey(pw, SALT); NOTES = [];
+      await persist();
+    } else {
+      const v = JSON.parse(localStorage.getItem(STORE_KEY));
+      SALT = fromB64(v.salt);
+      const k = await deriveKey(pw, SALT);
+      try { NOTES = await decryptJSON(k, v.iv, v.data); }
+      catch { err.textContent = 'Wrong password'; return; }
+      KEY = k;
+    }
+    $('#lock').classList.add('hidden'); $('#app').classList.remove('hidden');
+    render();
+  } catch (e) { err.textContent = 'Error: ' + e.message; }
+}
+
+/* ============ 13. LIST RENDERING ============ */
+function render(){
+  const q = $('#search').value.trim().toLowerCase();
+  const allTags = [...new Set(NOTES.flatMap(n => n.tags))].sort();
+  if (activeTag && !allTags.includes(activeTag)) activeTag = '';
+  $('#tags').innerHTML = allTags.length
+    ? ['', ...allTags].map(t => `<button class="chip ${t === activeTag ? 'on' : ''}" data-t="${esc(t)}">${t ? '#' + esc(t) : 'All'}</button>`).join('')
+    : '';
+  const rows = NOTES
+    .filter(n => (!activeTag || n.tags.includes(activeTag)) &&
+      (!q || (n.title + ' ' + n.body + ' ' + n.tags.join(' ')).toLowerCase().includes(q)))
+    .sort((a, b) => (b.pinned - a.pinned) || (b.updated - a.updated));
+  $('#list').innerHTML = rows.length ? rows.map(n => `
+    <div class="note" data-id="${n.id}">
+      <h3>${n.pinned ? '📌 ' : ''}${esc(n.title || 'Untitled')}</h3>
+      <div class="prev">${esc(n.body.slice(0, 300))}</div>
+      <div class="meta">${new Date(n.updated).toLocaleString()}${n.tags.length ? ' · ' + n.tags.map(t => '#' + esc(t)).join(' ') : ''}</div>
+    </div>`).join('') : '<div class="empty">No notes yet. Tap + to add one.</div>';
+}
+
+/* ============ 14. EDITOR ============ */
+function openEditor(id){
+  current = id ? NOTES.find(n => n.id === id)
+               : { id: uid(), title: '', body: '', tags: [], pinned: false, created: Date.now(), updated: Date.now(), isNew: true };
+  $('#eTitle').value = current.title; $('#eBody').value = current.body;
+  $('#eTags').value = current.tags.join(', ');
+  $('#ePin').style.opacity = current.pinned ? 1 : .4;
+  $('#saved').textContent = '';
+  $('#editor').classList.remove('hidden');
+  if (current.isNew) $('#eTitle').focus();
+}
+function collect(){
+  current.title = $('#eTitle').value.trim();
+  current.body = $('#eBody').value;
+  current.tags = $('#eTags').value.split(',').map(t => t.trim().replace(/^#/, '')).filter(Boolean);
+  current.updated = Date.now();
+}
+function scheduleSave(){
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(async () => {
+    if (!current) return;
+    collect();
+    if (current.isNew){
+      if (!current.title && !current.body) return;   // don't save empty notes
+      delete current.isNew; NOTES.push(current);
+    }
+    await persist();
+    $('#saved').textContent = 'Saved ✓';
+  }, 400);
+}
+async function closeEditor(){
+  clearTimeout(saveTimer);
+  if (current){
+    collect();
+    if (current.isNew){ if (current.title || current.body){ delete current.isNew; NOTES.push(current); } }
+    await persist();
+  }
+  current = null;
+  $('#editor').classList.add('hidden');
+  render();
+}
+async function deleteCurrent(){
+  if (!confirm('Delete this note?')) return;
+  NOTES = NOTES.filter(n => n.id !== current.id);
+  await persist(); current = null;
+  $('#editor').classList.add('hidden'); render();
+}
+
+/* ============ 15. BACKUP: EXPORT / IMPORT ============ */
+function exportBackup(){
+  const blob = new Blob([localStorage.getItem(STORE_KEY)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'secure-notes-backup-' + new Date().toISOString().slice(0, 10) + '.json';
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+async function importBackup(file){
+  try {
+    const v = JSON.parse(await file.text());
+    const pw = prompt('Enter the password of that backup:');
+    if (!pw) return;
+    const k = await deriveKey(pw, fromB64(v.salt));
+    const incoming = await decryptJSON(k, v.iv, v.data);
+    let added = 0, updated = 0;
+    for (const n of incoming){
+      const ex = NOTES.find(x => x.id === n.id);
+      if (!ex){ NOTES.push(n); added++; }
+      else if (n.updated > ex.updated){ Object.assign(ex, n); updated++; }
+    }
+    await persist(); render();
+    alert(`Import done: ${added} added, ${updated} updated.`);
+  } catch { alert('Could not import. Wrong password or invalid file.'); }
+}
+
+/* ============ 16. CHANGE PASSWORD ============ */
+async function changePassword(){
+  const np = prompt('New password (min 6 characters):');
+  if (!np) return;
+  if (np.length < 6) return alert('Too short.');
+  if (np !== prompt('Confirm new password:')) return alert('Passwords do not match.');
+  SALT = crypto.getRandomValues(new Uint8Array(16));
+  KEY = await deriveKey(np, SALT);
+  await persist();
+  alert('Password changed.');
+}
+
+/* ============ 17. EVENT WIRING ============ */
+$('#lockBtn').onclick = onLockSubmit;
+$('#pw').addEventListener('keydown', e => { if (e.key === 'Enter') (vaultExists() ? onLockSubmit() : $('#pw2').focus()); });
+$('#pw2').addEventListener('keydown', e => { if (e.key === 'Enter') onLockSubmit(); });
+$('#search').oninput = render;
+$('#fab').onclick = () => openEditor();
+$('#list').onclick = e => { const c = e.target.closest('.note'); if (c) openEditor(c.dataset.id); };
+$('#tags').onclick = e => { const c = e.target.closest('.chip'); if (c){ activeTag = c.dataset.t; render(); } };
+$('#menuBtn').onclick = () => $('#menu').classList.toggle('hidden');
+$('#mExport').onclick = () => { $('#menu').classList.add('hidden'); exportBackup(); };
+$('#mImport').onclick = () => { $('#menu').classList.add('hidden'); $('#file').click(); };
+$('#file').onchange = e => { if (e.target.files[0]) importBackup(e.target.files[0]); e.target.value = ''; };
+$('#mPw').onclick = () => { $('#menu').classList.add('hidden'); changePassword(); };
+$('#mLock').onclick = showLock;
+$('#eBack').onclick = closeEditor;
+$('#ePin').onclick = () => { current.pinned = !current.pinned; $('#ePin').style.opacity = current.pinned ? 1 : .4; scheduleSave(); };
+$('#eDel').onclick = deleteCurrent;
+['#eTitle', '#eTags', '#eBody'].forEach(s => $(s).addEventListener('input', scheduleSave));
+document.addEventListener('click', e => { if (!e.target.closest('#menu') && !e.target.closest('#menuBtn')) $('#menu').classList.add('hidden'); });
+
+/* ============ 18. AUTO-LOCK WHEN APP IS IN BACKGROUND ============ */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden){ lockTimer = setTimeout(() => { if (KEY) showLock(); }, AUTOLOCK_MS); }
+  else clearTimeout(lockTimer);
+});
+
+/* ============ 19. START ============ */
+if (!window.crypto || !crypto.subtle){
+  document.body.innerHTML = '<p style="padding:24px">This browser blocks encryption on this page. Open the file in Chrome, or host it over HTTPS.</p>';
+} else showLock();
+
+/* ============ 20. SERVICE WORKER (offline install) ============ */
+if ('serviceWorker' in navigator){
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+</script>
+</body>
+</html>
